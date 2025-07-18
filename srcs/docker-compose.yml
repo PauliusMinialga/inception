@@ -1,4 +1,4 @@
-version: "3.8"
+version: "3.3"
 
 services:
   mariadb:
@@ -41,6 +41,7 @@ services:
         - DOMAIN_NAME=${DOMAIN_NAME}
     image: inception-nginx
     container_name: nginx
+    env_file: .env
     depends_on:
       - wordpress
     ports:

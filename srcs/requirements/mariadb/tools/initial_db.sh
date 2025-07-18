@@ -1,39 +1,56 @@
 #!/bin/bash
 
-# Define paths to the secret files
-DB_ROOT_PASSWORD_FILE=/run/secrets/db_root_password
-DB_PASSWORD_FILE=/run/secrets/db_password
+# Exit immediately if a command exits with a non-zero status.
+set -e
 
-# Check if secrets are mounted
-if [ ! -f "$DB_ROOT_PASSWORD_FILE" ] || [ ! -f "$DB_PASSWORD_FILE" ]; then
-    echo "Error: Database secret files not found."
-    exit 1
-fi
+# Ensure critical directories exist and have correct permissions.
+mkdir -p /var/run/mysqld
+chown -R mysql:mysql /var/run/mysqld
+chown -R mysql:mysql /var/lib/mysql
 
-# Read passwords from the secret files
-DB_ROOT_PASSWORD=$(cat "$DB_ROOT_PASSWORD_FILE")
-DB_PASSWORD=$(cat "$DB_PASSWORD_FILE")
+# Only initialize the database on the first run.
+if [ ! -d "/var/lib/mysql/${DB_NAME}" ]; then
+    echo "MariaDB data directory not found. Initializing database..."
 
-# Start MariaDB in the background
-/usr/bin/mysqld_safe --datadir=/var/lib/mysql &
+    # Read secrets
+    DB_ROOT_PASSWORD=$(cat /run/secrets/db_root_password)
+    DB_PASSWORD=$(cat /run/secrets/db_password)
 
-# Wait for MariaDB to start
-while ! mysqladmin ping -h'localhost' --silent; do
-    echo "Waiting for MariaDB to be up..."
-    sleep 1
-done
+    # Initialize the database directory structure
+    mysql_install_db --user=mysql --datadir=/var/lib/mysql
 
-# Execute SQL setup commands
-mysql -u root <<-EOF
-    ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_ROOT_PASSWORD}';
-    CREATE DATABASE IF NOT EXISTS ${DB_NAME};
-    CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
-    GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'%';
-    FLUSH PRIVILEGES;
+    # Start a temporary server in the background using the correct path
+    /usr/sbin/mariadbd --user=mysql --datadir=/var/lib/mysql --skip-networking --nowatch &
+    pid="$!"
+
+    # Wait for the server to be ready
+    until mysqladmin ping --silent; do
+        echo "Waiting for temporary MariaDB server..."
+        sleep 2
+    done
+
+    # Run setup SQL
+    mysql -u root <<-EOF
+        ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_ROOT_PASSWORD}';
+        DELETE FROM mysql.user WHERE User='';
+        DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+        DROP DATABASE IF EXISTS test;
+        DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+        CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8 COLLATE utf8_general_ci;
+        CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+        GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'%';
+        FLUSH PRIVILEGES;
 EOF
 
-# Shut down the temporary MariaDB instance
-mysqladmin -u root -p"${DB_ROOT_PASSWORD}" shutdown
+    # Shutdown the temporary server safely
+    if ! mysqladmin -u root -p"${DB_ROOT_PASSWORD}" shutdown; then
+      echo "MariaDB shutdown failed. Killing process..." >&2
+      kill -9 "$pid"
+    fi
+    
+    echo "Database initialization complete."
+fi
 
-# Restart MariaDB in the foreground
-exec /usr/bin/mysqld_safe --datadir=/var/lib/mysql 
+echo "Starting MariaDB in normal mode..."
+# Execute the final server process using the correct path
+exec /usr/sbin/mariadbd --user=mysql --datadir=/var/lib/mysql

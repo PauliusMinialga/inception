@@ -1,27 +1,27 @@
 # Makefile for the Inception Project
 
 COMPOSE_FILE = srcs/docker-compose.yml
-ENV_FILE = srcs/.env
 
 # Build all service images.
 all:
 	@echo "Building all service images..."
-	docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) build
+	docker compose -f $(COMPOSE_FILE) build
 
 # Start all services in detached mode.
 up: all
 	@echo "Starting all services..."
-	docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up -d
+	docker compose -f $(COMPOSE_FILE) up -d
 
 # Stop all running services.
 down:
 	@echo "Stopping all services..."
-	docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) down
+	docker compose -f $(COMPOSE_FILE) down
 
 # Stop services and remove all related data.
 clean:
 	@echo "Cleaning up the project..."
-	docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) down --rmi all -v
+	docker 
+compose -f $(COMPOSE_FILE) down --rmi all -v
 
 # Rebuild and restart the entire project.
 re: clean all

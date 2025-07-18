@@ -3,8 +3,11 @@ FROM debian:bullseye
 
 # Install necessary packages
 RUN apt-get update && \
-    apt-get install -y php-fpm php-mysql curl mariadb-client && \
+    apt-get install -y php-fpm php-mysql curl mariadb-client iputils-ping && \
     rm -rf /var/lib/apt/lists/*
+
+# Configure PHP-FPM to listen on the network (port 9000) instead of a local socket.
+RUN sed -i "s/^listen = .*/listen = 9000/" /etc/php/*/fpm/pool.d/www.conf
 
 # Create the WordPress directory
 RUN mkdir -p /var/www/html
